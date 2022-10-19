@@ -34,6 +34,18 @@ const double DEFAULT_LAMBDA = 3.0;
 struct NonrigidResult : public Result {};
 
 /// Nonrigid coherent point drift.
+
+enum class NonrigidPolicy {
+  PRECISION = 0,
+  PERFORMANCE
+};
+
+/// Non-Rigid coherent point drift.
+///
+/// NOTE: Modified by Latim to enable performance vs precision
+///       computations
+///
+template <NonrigidPolicy P = NonrigidPolicy::PRECISION>
 class Nonrigid : public Transform<NonrigidResult> {
 public:
     Nonrigid()
@@ -43,10 +55,15 @@ public:
       , m_linked(DEFAULT_LINKED) {}
 
     /// Initialize this transform for the provided matrices.
-    void init(const Matrix& fixed, const Matrix& moving);
+    void init(const Matrix& fixed, const Matrix& moving) {
+      m_g = affinity(moving, moving, m_beta);
+      m_w = Matrix::Zero(moving.rows(), moving.cols());
+    }
 
     /// Modifies the probabilities with some affinity and weight information.
-    void modify_probabilities(Probabilities& probabilities) const;
+    void modify_probabilities(Probabilities& probabilities) const {
+      probabilities.l += m_lambda / 2.0 * (m_w.transpose() * m_g * m_w).trace();
+    }
 
     /// Sets the beta.
     Nonrigid& beta(double beta) {
@@ -63,7 +80,35 @@ public:
     /// Computes one iteration of the nonrigid transformation.
     NonrigidResult compute_one(const Matrix& fixed, const Matrix& moving,
                                const Probabilities& probabilities,
-                               double sigma2) const;
+                               double sigma2) const {
+                                size_t cols = fixed.cols();
+      auto dp = probabilities.p1.asDiagonal();
+      
+      Matrix w;
+      if constexpr (P == NonrigidPolicy::PRECISION) {
+        w = (dp * m_g + m_lambda * sigma2 *
+                                  Matrix::Identity(moving.rows(), moving.rows()))
+                      .colPivHouseholderQr()
+                      .solve(probabilities.px - dp * moving);
+      } else {
+        w = (dp * m_g + m_lambda * sigma2 *
+                                Matrix::Identity(moving.rows(), moving.rows()))
+                    .householderQr()
+                    .solve(probabilities.px - dp * moving);
+      }
+      NonrigidResult result;
+      result.points = moving + m_g * w;
+      double np = probabilities.p1.sum();
+      result.sigma2 = std::abs(
+          ((fixed.array().pow(2) * probabilities.pt1.replicate(1, cols).array())
+              .sum() +
+          (result.points.array().pow(2) *
+            probabilities.p1.replicate(1, cols).array())
+              .sum() -
+          2 * (probabilities.px.transpose() * result.points).trace()) /
+          (np * cols));
+      return result;
+    }
 
     /// Sets whether the scalings of the two datasets are linked.
     Nonrigid& linked(bool linked) {
@@ -81,6 +126,9 @@ private:
     bool m_linked;
 };
 
-/// Runs a nonrigid registration on two matrices.
+/// Runs a nonrigid registration on two matrices (precision)
 NonrigidResult nonrigid(const Matrix& fixed, const Matrix& moving);
+
+/// Runs a nonrigid registration on two matrices (performance)
+NonrigidResult nonrigid_quick(const Matrix& fixed, const Matrix& moving);
 } // namespace cpd
