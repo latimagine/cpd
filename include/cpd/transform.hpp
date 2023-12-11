@@ -139,12 +139,17 @@ public:
     }
 
     /// Runs this transform for the provided matrices.
-    Result run(Matrix fixed, Matrix moving) {
+    Result run(const Matrix& f, const Matrix& m) {
         auto tic = std::chrono::high_resolution_clock::now();
-        Normalization normalization(fixed, moving, linked());
+        Normalization normalization(f, m, linked());
+        Matrix fixed;
+        Matrix moving;
         if (m_normalize) {
             fixed = normalization.fixed;
             moving = normalization.moving;
+        } else {
+            fixed = f;
+            moving = m;
         }
 
         this->init(fixed, moving);
