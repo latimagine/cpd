@@ -56,7 +56,7 @@ public:
 
     /// Initialize this transform for the provided matrices.
     void init(const Matrix& fixed, const Matrix& moving) {
-      m_g = affinity(fixed, moving, m_beta);
+      m_g = affinity(moving, moving, m_beta);
       m_w = Matrix::Zero(moving.rows(), moving.cols());
     }
 
